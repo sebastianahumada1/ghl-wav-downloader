@@ -1,0 +1,11 @@
+{
+  "name": "ghl-wav-downloader",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node script.js" },
+  "dependencies": {
+    "playwright": "^1.47.0",
+    "otplib": "^12.0.1"
+  }
+}

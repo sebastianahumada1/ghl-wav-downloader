@@ -1,0 +1,57 @@
+name: GHL WAV downloader (cron)
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # cada 30 minutos (UTC); cámbialo a lo que necesites
+  workflow_dispatch:          # permite lanzarlo manualmente desde "Actions"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ghl-wav-cron
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar Playwright + deps
+        run: |
+          npm ci || npm i
+          npx playwright install --with-deps chromium
+
+      - name: Ejecutar script (descarga .wav)
+        env:
+          TARGET_URL: ${{ secrets.TARGET_URL }}
+          MIN_MB: "1"
+          WAIT_FOR: ${{ secrets.WAIT_FOR }}           # opcional; p.ej. ".calls-table-loaded"
+          TIMEOUT_MS: "60000"
+          DL_TIMEOUT_MS: "90000"
+          HEADLESS: "true"
+          SCROLL_ROUNDS: ${{ secrets.SCROLL_ROUNDS }} # opcional; n.º de bajadas hasta el fondo
+          PAUSE_BETWEEN: "900"
+
+          # *** AUTENTICACIÓN ***
+          # Opción A (recomendada si tienes 2FA): storageState base64 (cookies/localStorage)
+          STORAGE_STATE_BASE64: ${{ secrets.STORAGE_STATE_BASE64 }}
+
+          # Opción B (si NO usas 2FA): usuario/clave (+ TOTP opcional)
+          GHL_EMAIL: ${{ secrets.GHL_EMAIL }}
+          GHL_PASSWORD: ${{ secrets.GHL_PASSWORD }}
+          TOTP_SECRET: ${{ secrets.TOTP_SECRET }}     # opcional (si conoces el secreto TOTP)
+        run: node script.js
+
+      - name: Subir outputs como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outputs
+          path: outputs/
+          if-no-files-found: warn
