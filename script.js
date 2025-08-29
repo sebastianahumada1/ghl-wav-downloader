@@ -289,11 +289,6 @@ async function downloadFromFrame(frame, page, context, item, i) {
   await loginIfNeeded(page);
   await ensureReady(page);
 
-  // Evidencias previas
-  await page.screenshot({ path: path.join(outDir, '0_mid.png'), fullPage: true }).catch(()=>{});
-  await page.screenshot({ path: path.join(outDir, '1_loaded.png'), fullPage: true }).catch(()=>{});
-  await fs.promises.writeFile(path.join(outDir, 'page.html'), await page.content()).catch(()=>{});
-
   // Recolección multi-frame
   let items = await collectAllFrames(page, MIN_BYTES);
   if (items.length === 0 && COLLECT_RETRY > 0) {
@@ -322,7 +317,6 @@ async function downloadFromFrame(frame, page, context, item, i) {
     await page.waitForTimeout(PAUSE_BETWEEN);
   }
 
-  await page.screenshot({ path: path.join(outDir, '2_done.png'), fullPage: true }).catch(()=>{});
   await browser.close();
 })().catch(err => {
   console.error('[FATAL]', err);
