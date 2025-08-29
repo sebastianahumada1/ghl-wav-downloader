@@ -61,7 +61,8 @@ jobs:
           path: outputs/
           if-no-files-found: warn
 
-        - name: Instalar rclone
+      # ====== Subida a Google Drive con rclone ======
+      - name: Instalar rclone
         run: |
           curl -fsSL https://rclone.org/install.sh | sudo bash
 
@@ -81,7 +82,6 @@ jobs:
           root_folder_id = ${GDRIVE_FOLDER_ID}
           EOF
 
-      # (Opcional) Verifica que rclone ve la carpeta raíz configurada
       - name: Probar conexión a Drive
         env:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
@@ -89,6 +89,7 @@ jobs:
           echo "Usando root_folder_id=${GDRIVE_FOLDER_ID}"
           rclone lsd gdrive: --config ./rclone.conf || true
 
+      # Variante A: copiar outputs/ directamente dentro de la carpeta configurada
       - name: Subir outputs/ a Google Drive
         if: always()
         run: |
@@ -102,7 +103,6 @@ jobs:
           else
             echo "No hay carpeta outputs/ para subir."
           fi
-
 
       # # Variante B (opcional): subir a subcarpeta por fecha/hora en UTC
       # - name: Subir outputs/ a subcarpeta fechada en Drive
@@ -120,3 +120,19 @@ jobs:
       #     else
       #       echo "No hay carpeta outputs/ para subir."
       #     fi
+
+      # # (Opcional) Config para Shared Drive (Drive compartido)
+      # # Usa esto si tu carpeta destino está dentro de una Unidad Compartida:
+      # - name: Configurar rclone para Shared Drive (alternativa)
+      #   if: ${{ false }} # cámbialo a 'always()' si la usas
+      #   env:
+      #     DRIVE_ID: ${{ secrets.GDRIVE_FOLDER_ID }}  # ID de la unidad compartida
+      #   run: |
+      #     cat > rclone.conf <<EOF
+      #     [gdrive]
+      #     type = drive
+      #     scope = drive
+      #     service_account_file = ${GITHUB_WORKSPACE}/sa.json
+      #     drive_id = ${DRIVE_ID}
+      #     team_drive = true
+      #     EOF
