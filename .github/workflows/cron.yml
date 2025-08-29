@@ -46,6 +46,7 @@ jobs:
           TOTP_SECRET: ${{ secrets.TOTP_SECRET }}
         run: node script.js
 
+      # (Opcional) Artifact de respaldo en GitHub
       - name: Subir outputs como artifact (backup)
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,6 +55,7 @@ jobs:
           path: outputs/
           if-no-files-found: warn
 
+      # ====== Subida a Google Drive con rclone ======
       - name: Instalar rclone
         run: |
           curl -fsSL https://rclone.org/install.sh | sudo bash
@@ -75,22 +77,50 @@ jobs:
           EOF
 
       - name: Probar conexión a Drive
-        env:
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
-          echo "Usando root_folder_id=${GDRIVE_FOLDER_ID}"
           rclone lsd gdrive: --config ./rclone.conf || true
 
-      - name: Subir outputs/ a Google Drive
+      # 👉 A) Subir SOLO el contenido de outputs/ (sin carpeta contenedora)
+      - name: Subir contenido de outputs/ a Google Drive
         if: always()
         run: |
           if [ -d "outputs" ]; then
-            rclone copy "outputs" "gdrive:" \
+            rclone copy "outputs/" "gdrive:" \
               --config ./rclone.conf \
               --transfers 4 --checkers 8 \
               --drive-chunk-size 64M \
-              --drive-stop-on-upload-limit \
               --progress
           else
             echo "No hay carpeta outputs/ para subir."
           fi
+
+      # 👉 B) (Extra) Crear y subir un ZIP con todo outputs
+      - name: Comprimir outputs en ZIP
+        if: always()
+        run: |
+          if [ -d "outputs" ]; then
+            ZIP_NAME="outputs_${{ github.run_id }}.zip"
+            zip -qr "$ZIP_NAME" outputs
+            ls -lh "$ZIP_NAME"
+          else
+            echo "No hay carpeta outputs/ para comprimir."
+          fi
+
+      - name: Subir ZIP a Google Drive
+        if: always()
+        run: |
+          if ls outputs_*.zip >/dev/null 2>&1; then
+            rclone copy outputs_*.zip "gdrive:" \
+              --config ./rclone.conf \
+              --transfers 2 --checkers 4 \
+              --drive-chunk-size 64M \
+              --progress
+          else
+            echo "No hay ZIP para subir."
+          fi
+
+      # Listado final para verificar en destino
+      - name: Listar contenido en destino (Drive)
+        if: always()
+        run: |
+          rclone tree "gdrive:" --config ./rclone.conf || rclone lsl "gdrive:" --config ./rclone.conf || true
