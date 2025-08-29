@@ -2,8 +2,8 @@ name: GHL WAV downloader (cron)
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # cada 30 minutos (UTC) — ajusta si quieres
-  workflow_dispatch:          # para ejecutarlo manualmente desde Actions
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +15,6 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -30,29 +29,23 @@ jobs:
 
       - name: Ejecutar script (descarga .wav)
         env:
-          # === Parámetros del scraper ===
           TARGET_URL: ${{ secrets.TARGET_URL }}
-          MIN_MB: "1"                       # pon "0" para probar flujo y luego vuelve a 1
-          WAIT_FOR: ${{ secrets.WAIT_FOR }} # ej. ".ant-table" o ".ant-table-content"
+          MIN_MB: "1"
+          WAIT_FOR: ${{ secrets.WAIT_FOR }}
           TIMEOUT_MS: "180000"
           DL_TIMEOUT_MS: "180000"
           HEADLESS: "true"
-          SCROLL_ROUNDS: ${{ secrets.SCROLL_ROUNDS }} # ej. "4"
+          SCROLL_ROUNDS: ${{ secrets.SCROLL_ROUNDS }}
           PAUSE_BETWEEN: "1200"
           START_DELAY_MS: "10000"
           COLLECT_RETRY: "1"
           COLLECT_RETRY_DELAY_MS: "5000"
-
-          # === Autenticación (usa UNA de las dos opciones) ===
-          # Opción A (recomendada con 2FA): estado de sesión en Base64
           STORAGE_STATE_BASE64: ${{ secrets.STORAGE_STATE_BASE64 }}
-          # Opción B (sin 2FA): usuario/clave (+ TOTP opcional)
           GHL_EMAIL: ${{ secrets.GHL_EMAIL }}
           GHL_PASSWORD: ${{ secrets.GHL_PASSWORD }}
           TOTP_SECRET: ${{ secrets.TOTP_SECRET }}
         run: node script.js
 
-      # (Opcional) Subir outputs a Artifacts de GitHub como respaldo
       - name: Subir outputs como artifact (backup)
         if: always()
         uses: actions/upload-artifact@v4
@@ -61,7 +54,6 @@ jobs:
           path: outputs/
           if-no-files-found: warn
 
-      # ====== Subida a Google Drive con rclone ======
       - name: Instalar rclone
         run: |
           curl -fsSL https://rclone.org/install.sh | sudo bash
@@ -89,7 +81,6 @@ jobs:
           echo "Usando root_folder_id=${GDRIVE_FOLDER_ID}"
           rclone lsd gdrive: --config ./rclone.conf || true
 
-      # Variante A: copiar outputs/ directamente dentro de la carpeta configurada
       - name: Subir outputs/ a Google Drive
         if: always()
         run: |
@@ -103,36 +94,3 @@ jobs:
           else
             echo "No hay carpeta outputs/ para subir."
           fi
-
-      # # Variante B (opcional): subir a subcarpeta por fecha/hora en UTC
-      # - name: Subir outputs/ a subcarpeta fechada en Drive
-      #   if: always()
-      #   run: |
-      #     if [ -d "outputs" ]; then
-      #       DATE_DIR="$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
-      #       rclone mkdir "gdrive/${DATE_DIR}" --config ./rclone.conf
-      #       rclone copy "outputs" "gdrive/${DATE_DIR}" \
-      #         --config ./rclone.conf \
-      #         --transfers 4 --checkers 8 \
-      #         --drive-chunk-size 64M \
-      #         --drive-stop-on-upload-limit \
-      #         --progress
-      #     else
-      #       echo "No hay carpeta outputs/ para subir."
-      #     fi
-
-      # # (Opcional) Config para Shared Drive (Drive compartido)
-      # # Usa esto si tu carpeta destino está dentro de una Unidad Compartida:
-      # - name: Configurar rclone para Shared Drive (alternativa)
-      #   if: ${{ false }} # cámbialo a 'always()' si la usas
-      #   env:
-      #     DRIVE_ID: ${{ secrets.GDRIVE_FOLDER_ID }}  # ID de la unidad compartida
-      #   run: |
-      #     cat > rclone.conf <<EOF
-      #     [gdrive]
-      #     type = drive
-      #     scope = drive
-      #     service_account_file = ${GITHUB_WORKSPACE}/sa.json
-      #     drive_id = ${DRIVE_ID}
-      #     team_drive = true
-      #     EOF
