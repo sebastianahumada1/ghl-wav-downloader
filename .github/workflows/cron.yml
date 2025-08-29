@@ -2,8 +2,8 @@ name: GHL WAV downloader (cron)
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # cada 30 minutos (UTC); cámbialo a lo que necesites
-  workflow_dispatch:          # permite lanzarlo manualmente desde "Actions"
+    - cron: "*/30 * * * *"   # cada 30 minutos (UTC) — ajusta si quieres
+  workflow_dispatch:          # para ejecutarlo manualmente desde Actions
 
 permissions:
   contents: read
@@ -15,6 +15,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -22,36 +23,93 @@ jobs:
         with:
           node-version: 20
 
-      - name: Instalar Playwright + deps
+      - name: Instalar Playwright + dependencias
         run: |
           npm ci || npm i
           npx playwright install --with-deps chromium
 
       - name: Ejecutar script (descarga .wav)
         env:
+          # === Parámetros del scraper ===
           TARGET_URL: ${{ secrets.TARGET_URL }}
-          MIN_MB: "1"
-          WAIT_FOR: ${{ secrets.WAIT_FOR }}           # opcional; p.ej. ".calls-table-loaded"
-          TIMEOUT_MS: "60000"
-          DL_TIMEOUT_MS: "90000"
+          MIN_MB: "1"                       # pon "0" para probar flujo y luego vuelve a 1
+          WAIT_FOR: ${{ secrets.WAIT_FOR }} # ej. ".ant-table" o ".ant-table-content"
+          TIMEOUT_MS: "180000"
+          DL_TIMEOUT_MS: "180000"
           HEADLESS: "true"
-          SCROLL_ROUNDS: ${{ secrets.SCROLL_ROUNDS }} # opcional; n.º de bajadas hasta el fondo
-          PAUSE_BETWEEN: "900"
+          SCROLL_ROUNDS: ${{ secrets.SCROLL_ROUNDS }} # ej. "4"
+          PAUSE_BETWEEN: "1200"
+          START_DELAY_MS: "10000"
+          COLLECT_RETRY: "1"
+          COLLECT_RETRY_DELAY_MS: "5000"
 
-          # *** AUTENTICACIÓN ***
-          # Opción A (recomendada si tienes 2FA): storageState base64 (cookies/localStorage)
+          # === Autenticación (usa UNA de las dos opciones) ===
+          # Opción A (recomendada con 2FA): estado de sesión en Base64
           STORAGE_STATE_BASE64: ${{ secrets.STORAGE_STATE_BASE64 }}
-
-          # Opción B (si NO usas 2FA): usuario/clave (+ TOTP opcional)
+          # Opción B (sin 2FA): usuario/clave (+ TOTP opcional)
           GHL_EMAIL: ${{ secrets.GHL_EMAIL }}
           GHL_PASSWORD: ${{ secrets.GHL_PASSWORD }}
-          TOTP_SECRET: ${{ secrets.TOTP_SECRET }}     # opcional (si conoces el secreto TOTP)
+          TOTP_SECRET: ${{ secrets.TOTP_SECRET }}
         run: node script.js
 
-      - name: Subir outputs como artifact
+      # (Opcional) Subir outputs a Artifacts de GitHub como respaldo
+      - name: Subir outputs como artifact (backup)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: outputs
           path: outputs/
           if-no-files-found: warn
+
+      # ====== Subida a Google Drive con rclone ======
+      - name: Instalar rclone
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Escribir credenciales de Service Account
+        run: |
+          printf "%s" '${{ secrets.GDRIVE_SA_JSON }}' > sa.json
+
+      - name: Configurar rclone remoto "gdrive"
+        run: |
+          cat > rclone.conf <<'EOF'
+          [gdrive]
+          type = drive
+          scope = drive
+          service_account_file = ${GITHUB_WORKSPACE}/sa.json
+          root_folder_id = ${GDRIVE_FOLDER_ID}
+          EOF
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+
+      # Variante A: copiar outputs/ directamente dentro de la carpeta configurada
+      - name: Subir outputs/ a Google Drive
+        if: always()
+        run: |
+          if [ -d "outputs" ]; then
+            rclone copy "outputs" "gdrive:" \
+              --config ./rclone.conf \
+              --transfers 4 --checkers 8 \
+              --drive-chunk-size 64M \
+              --drive-stop-on-upload-limit \
+              --progress
+          else
+            echo "No hay carpeta outputs/ para subir."
+          fi
+
+      # # Variante B (opcional): subir a subcarpeta por fecha/hora en UTC
+      # - name: Subir outputs/ a subcarpeta fechada en Drive
+      #   if: always()
+      #   run: |
+      #     if [ -d "outputs" ]; then
+      #       DATE_DIR="$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+      #       rclone mkdir "gdrive/${DATE_DIR}" --config ./rclone.conf
+      #       rclone copy "outputs" "gdrive/${DATE_DIR}" \
+      #         --config ./rclone.conf \
+      #         --transfers 4 --checkers 8 \
+      #         --drive-chunk-size 64M \
+      #         --drive-stop-on-upload-limit \
+      #         --progress
+      #     else
+      #       echo "No hay carpeta outputs/ para subir."
+      #     fi
