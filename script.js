@@ -111,12 +111,10 @@ async function ensureReady(page) {
 
 // === Bookmarklet adaptado, pero por FRAME ===
 async function collectFromFrame(frame, minBytes) {
-  // Ejecuta tu lógica dentro del frame (maneja blob:, HEAD/Range, etc.)
   return await frame.evaluate(async (MIN) => {
     const wait = (ms) => new Promise(r => setTimeout(r, ms));
     const S = new Set();
 
-    // Tu código original, tal cual (sin el alert final)
     document.querySelectorAll('audio,source').forEach(el => { if (el.src) S.add(el.src); });
     document.querySelectorAll('*').forEach(el => {
       ['href','src','data-url','data-href','data-download','data-src'].forEach(k => {
@@ -130,7 +128,6 @@ async function collectFromFrame(frame, minBytes) {
     async function sizeOf(u) {
       try {
         if (u.startsWith('blob:')) {
-          // blob: dentro del mismo frame sí se puede leer
           const r = await fetch(u);
           const b = await r.blob();
           return b.size;
@@ -176,13 +173,14 @@ async function collectAllFrames(page, minBytes) {
       console.warn(`[COLLECT] Frame #${idx} error: ${e.message}`);
     }
   }
-  // De-dup por URL (mantiene el primero)
   const seen = new Set();
   return all.filter(x => (seen.has(x.url) ? false : (seen.add(x.url), true)));
 }
 
 async function downloadFromFrame(frame, page, context, item, i) {
-  const { url: u } = item;
+  const u = item.url;
+
+  // Nombre base
   const nameFromUrl = (() => {
     try {
       const end = decodeURIComponent(new URL(u, page.url()).pathname.split('/').pop() || '');
@@ -194,18 +192,58 @@ async function downloadFromFrame(frame, page, context, item, i) {
   const finalName = sanitize(nameFromUrl);
   const saveAsPath = path.join(outDir, finalName);
 
-  // 1) Intento principal: hacer el <a download> DENTRO DEL FRAME de origen
+  // === Caso 1: blob: -> leer y devolver base64 desde el frame ===
+  if (isBlob(u)) {
+    try {
+      const { b64, suggestedName } = await frame.evaluate(async (arg) => {
+        const { u, fallbackName } = arg;
+        const resp = await fetch(u);
+        const blob = await resp.blob();
+
+        const b64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const res = reader.result; // data:...;base64,XXXX
+            const idx = res.indexOf(',');
+            resolve(idx >= 0 ? res.slice(idx + 1) : res);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+
+        let suggestedName = fallbackName;
+        try {
+          const urlObj = new URL(u);
+          const last = decodeURIComponent(urlObj.pathname.split('/').pop() || '');
+          if (last) suggestedName = last;
+        } catch {}
+        return { b64, suggestedName };
+      }, { u, fallbackName: finalName });
+
+      const fname = sanitize(suggestedName || finalName);
+      await fs.promises.writeFile(path.join(outDir, fname), Buffer.from(b64, 'base64'));
+      console.log('[OK] Descargado blob via base64:', fname);
+      return true;
+    } catch (e) {
+      console.error('[ERROR] No se pudo leer blob desde el frame:', e.message);
+      return false;
+    }
+  }
+
+  // === Caso 2: http/https ===
+  // 2a) Intento por click <a download> dentro del frame (capturamos evento en page)
   try {
     const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: DL_TIMEOUT_MS }), // se emite a nivel de page
-      frame.evaluate((u, i, fallbackName) => {
+      page.waitForEvent('download', { timeout: DL_TIMEOUT_MS }),
+      frame.evaluate((arg) => {
+        const { u, i, fallbackName } = arg;
         const a = document.createElement('a');
         a.href = u;
         a.download = fallbackName || (u.split('/').pop() || `audio_${i + 1}.wav`);
         document.body.appendChild(a);
         a.click();
         a.remove();
-      }, u, i, finalName)
+      }, { u, i, fallbackName: finalName })
     ]);
     const suggested = sanitize(download.suggestedFilename() || finalName);
     await download.saveAs(path.join(outDir, suggested));
@@ -215,7 +253,7 @@ async function downloadFromFrame(frame, page, context, item, i) {
     console.warn('[WARN] Click download falló:', e.message);
   }
 
-  // 2) Fallback: descarga por request (solo http/https, NO blob:)
+  // 2b) Fallback: request con cookies del contexto
   if (isHttp(u)) {
     try {
       const resp = await context.request.get(u, { timeout: DL_TIMEOUT_MS });
@@ -227,8 +265,6 @@ async function downloadFromFrame(frame, page, context, item, i) {
     } catch (e) {
       console.error('[ERROR] Request fallback falló:', u, e.message);
     }
-  } else {
-    console.warn('[WARN] URL es blob: y no se pudo descargar por click (origen/permiso).');
   }
 
   return false;
@@ -263,7 +299,6 @@ async function downloadFromFrame(frame, page, context, item, i) {
   if (items.length === 0 && COLLECT_RETRY > 0) {
     console.warn(`[COLLECT] 0 URLs; reintento en ${COLLECT_RETRY_DELAY_MS} ms…`);
     await page.waitForTimeout(COLLECT_RETRY_DELAY_MS);
-    // mini-scroll extra
     for (let i = 0; i < 2; i++) {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await page.waitForTimeout(1200);
