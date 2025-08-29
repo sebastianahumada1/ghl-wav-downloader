@@ -61,8 +61,7 @@ jobs:
           path: outputs/
           if-no-files-found: warn
 
-      # ====== Subida a Google Drive con rclone ======
-      - name: Instalar rclone
+        - name: Instalar rclone
         run: |
           curl -fsSL https://rclone.org/install.sh | sudo bash
 
@@ -71,18 +70,25 @@ jobs:
           printf "%s" '${{ secrets.GDRIVE_SA_JSON }}' > sa.json
 
       - name: Configurar rclone remoto "gdrive"
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
-          cat > rclone.conf <<'EOF'
+          cat > rclone.conf <<EOF
           [gdrive]
           type = drive
           scope = drive
           service_account_file = ${GITHUB_WORKSPACE}/sa.json
           root_folder_id = ${GDRIVE_FOLDER_ID}
           EOF
+
+      # (Opcional) Verifica que rclone ve la carpeta raíz configurada
+      - name: Probar conexión a Drive
         env:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          echo "Usando root_folder_id=${GDRIVE_FOLDER_ID}"
+          rclone lsd gdrive: --config ./rclone.conf || true
 
-      # Variante A: copiar outputs/ directamente dentro de la carpeta configurada
       - name: Subir outputs/ a Google Drive
         if: always()
         run: |
@@ -96,6 +102,7 @@ jobs:
           else
             echo "No hay carpeta outputs/ para subir."
           fi
+
 
       # # Variante B (opcional): subir a subcarpeta por fecha/hora en UTC
       # - name: Subir outputs/ a subcarpeta fechada en Drive
