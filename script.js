@@ -44,12 +44,12 @@ async function loginIfNeeded(page) {
   const submitSel= 'button[type="submit"], button:has-text("Sign in"), button:has-text("Login"), button:has-text("Iniciar")';
 
   if (GHL_EMAIL && GHL_PASSWORD) {
-    try { await page.waitForSelector(emailSel, { timeout: 15000 }); } catch {}
+    try { await page.waitForSelector(emailSel, { timeout: 19000 }); } catch {}
     const emailEl = await page.$(emailSel);
     const passEl  = await page.$(passSel);
 
     if (emailEl && passEl) {
-      await emailEl.fill(GHL_EMAIL, { timeout: 15000 });
+      await emailEl.fill(GHL_EMAIL, { timeout: 19000 });
       await passEl.fill(GHL_PASSWORD);
       const btn = await page.$(submitSel);
       if (btn) await Promise.all([
@@ -61,7 +61,7 @@ async function loginIfNeeded(page) {
     if (TOTP_SECRET) {
       const otpSel = 'input[autocomplete="one-time-code"], input[name*="otp" i], input[type="tel"]';
       try {
-        await page.waitForSelector(otpSel, { timeout: 8000 });
+        await page.waitForSelector(otpSel, { timeout: 16000 });
         const code = authenticator.generate(TOTP_SECRET);
         await page.fill(otpSel, code);
         const btn = await page.$(submitSel);
